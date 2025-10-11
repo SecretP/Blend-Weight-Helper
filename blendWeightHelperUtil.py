@@ -8,20 +8,20 @@ def apply_weight(weight_value):
 		return
 
 	skin_cluster = find_skin_cluster()
-
 	if not skin_cluster:
 		cmds.warning("No skinCluster found on selection.")
 		return
-	
 
 	influences = cmds.skinCluster(skin_cluster, query = True, influence = True)
 	if not influences:
 		cmds.warning("No joint influences found.")
 		return
+	
 	joint = influences[0]
 
 	for vtx in sels:
 		cmds.skinPercent(skin_cluster, vtx, transformValue=[(joint, weight_value)])
+	
 	cmds.inViewMessage(amg=f"Applied weight {weight_value}", pos="midCenter", fade=True)
 
 
@@ -30,9 +30,11 @@ def display_selected_vertices():
 	if not sels:
 		cmds.warning("No vertex selected.")
 		return
+	
 	print("Selected vertices:")
 	for vtx in sels:
 		print(vtx)
+	
 	cmds.inViewMessage(amg=f"Listed {len(sels)} selected vertices in script editor.", pos="botLeft", fade=True)
 
 
@@ -44,7 +46,7 @@ def display_weight_values():
 
 	skin_cluster = find_skin_cluster()
 	if not skin_cluster:
-		cmds.warning("No skinCLustor found.")
+		cmds.warning("No skinCLuster found.")
 		return
 
 	for vtx in sels:
@@ -61,14 +63,25 @@ def find_skin_cluster():
 	selfs = cmds.ls(selection=True, o=True)
 	if not sels:
 		return None
+	
+	history = cmds.listHistory(sels[0])
+	if not history:
+		return None
+
 	skin_clusters = cmds.ls(cmds.listHistory(sel[0]), type="skinCluster")
 	return skin_cluster[0] if skin_clusters else None
 
 # MAYA TOOL SHOTCUTS
 def open_paint_skin_weight_tool():
-	mel.eval("ArtPaintSkinWeightTool;")
-	cmds.inViewMessage(amg="Opened Paint Skin Weight Tool.", pos = "topCenter", fade = True)
-
+	try:
+		mel.eval("ArtPaintSkinWeightsTool;")
+		cmds.inViewMessage(amg="Opened Paint Skin Weight Tool.", pos = "topCenter", fade = True)
+	except Exception as e:
+		cmds.warning(f"Failed to open Paint Skin Weight Tool: {e}")
+		
 def open_smooth_skin_editor():
-	mel.eval("ComponentEditor; showEditorCOmponent 'SmoothSkin'")
-	cmds.inVIewMessage(amg="Opened Component Editor > Smooth Skin tab", pos = "topCenter", fade = True)
+	try:
+		mel.eval("ComponentEditor; showEditorComponent 'SmoothSkin'")
+		cmds.inVIewMessage(amg="Opened Component Editor > Smooth Skin tab", pos = "topCenter", fade = True)
+	except Exception as e:
+		cmds.warning(f"Failed to open Component Editor: {e}")
