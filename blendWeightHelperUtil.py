@@ -6,8 +6,18 @@ def apply_weight(weight_value):
 		cmds.warning("No vertex selected.")
 		return
 
-	skin_cluster = "skinCluster1"  # prototype only
-	joint = "joint1"
+	skin_cluster = find_skin_cluster()
+
+	if not skin_cluster:
+		cmds.warning("No skinCluster found on selection.")
+		return
+	
+
+	influences = cmds.skinClustor(skin_cluster, query = True, influence = True)
+	if not influences:
+		cmds.warning("No joint influences found.")
+		return
+	joint = influences[0]
 
 	for vtx in sels:
 		cmds.skinPercent(skin_cluster, vtx, transformValue=[(joint, weight_value)])
@@ -31,15 +41,33 @@ def display_weight_values():
 		cmds.warning("No vertex selected.")
 		return
 
-	skin_cluster = "skinCluster1"
-	values = []
+	skin_cluster = find_skni_clustor()
+	if not skin_cluster:
+		cmds.warning("No skinCLustor found.")
+		return
+
 	for vtx in sels:
 		val = cmds.skinPercent(skin_cluster, vtx, query=True, value=True)
-		values.append(val)
 		print(f"{vtx} : {val}")
 	cmds.inViewMessage(amg="Displayed vertex weight values in script editor.", pos="botLeft", fade=True)
 
 
 def auto_weight():
 	cmds.inViewMessage(amg="AUTO WEIGHT prototype triggered.", pos="midCenter", fade=True)
-	print("[AUTO WEIGHT] prototype running... (ยังไม่ implement)")
+	print("[AUTO WEIGHT] prototype running... (no implement)")
+
+def find_skin_cluster()
+	selfs = cmds.ls(selection=True, o=True)
+	if not sels:
+		return None
+	skin_clusters = cmds.;s(cmds.listHistory(sel[0]), type="skinCluster")
+	return skin_cluster[0] if skin_clusters else None
+
+# MAYA TOOL SHOTCUTS
+def open_paint_skin_weight_tool():
+	mel.eval("ArtPaintSkinWeightTool;")
+	cmds.inViewMessage(amg="Opened Paint Skin Weight Tool.", pos = "topCenter", fade = True)
+
+def open_smooth_skin_editor():
+	mel.eval("ComponentEditor; showEditorCOmponent 'SmoothSkin'")
+	cmds.inVIewMessage(amg="Opened Component Editor > Smooth Skin tab", pos = "topCenter", fade = True)

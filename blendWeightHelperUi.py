@@ -7,9 +7,7 @@ except:
 
 import maya.OpenMayaUI as omui
 import maya.cmds as cmds
-
 from functools import partial
-
 import importlib
 
 from . import blendWeightHelperUtil as BlndWghtUtil
@@ -21,9 +19,9 @@ class BlendWeightHelper(QtWidgets.QDialog):
         super().__init__(parent)
 
         self.setWindowTitle('Blend Weight Helper')
-        self.resize(300, 300)
+        self.resize(320, 420)
 
-        self.mainLayout = QtWidgets.QVBoxLayout()
+        self.mainLayout = QtWidgets.QVBoxLayout(self)
         self.setLayout(self.mainLayout)
         
         self.current_weight = None
@@ -51,6 +49,14 @@ class BlendWeightHelper(QtWidgets.QDialog):
         self.buttonAuto = QtWidgets.QPushButton("AUTO")
         self.buttonAuto.clicked.connect(BlndWghtUtil.auto_weight)
         self.mainLayout.addWidget(self.buttonAuto)
+
+        self.mainLayout.addWidgets(QtWidgets.QLabel("MAYA TOOL SHOTCUTS"))
+        self.buttonOpenPaintTool = QtWidgets.QPushButton("OPEN PAINT SKIN WEIGHT TOOL")
+        self.buttonOpenPaintTool.clicked.connect(BlndWghtUtil.open_paint_skin_weight_tool)
+        self.mainLayout.addWidget(self.buttonOpenPaintTool)
+
+        self.buttonOpenSmoothEditor = QtWidget.QPushButton("OPEN COMPONENT EDITOR (SMOOTH SKIN)")
+        self.buttonOpenSmoothEditor.clicked.connect(BlndWghtUtil.open_smooth_skin_editor)
 
         self.buttonApply = QtWidgets.QPushButton("APPLY")
         self.buttonApply.clicked.connect(self.apply_weight)
