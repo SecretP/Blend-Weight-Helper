@@ -1,4 +1,5 @@
 import maya.cmds as cmds
+import maya.mel as mel
 
 def apply_weight(weight_value):
 	sels = cmds.ls(selection=True, fl=True)
@@ -13,7 +14,7 @@ def apply_weight(weight_value):
 		return
 	
 
-	influences = cmds.skinClustor(skin_cluster, query = True, influence = True)
+	influences = cmds.skinCluster(skin_cluster, query = True, influence = True)
 	if not influences:
 		cmds.warning("No joint influences found.")
 		return
@@ -41,7 +42,7 @@ def display_weight_values():
 		cmds.warning("No vertex selected.")
 		return
 
-	skin_cluster = find_skni_clustor()
+	skin_cluster = find_skin_cluster()
 	if not skin_cluster:
 		cmds.warning("No skinCLustor found.")
 		return
@@ -56,11 +57,11 @@ def auto_weight():
 	cmds.inViewMessage(amg="AUTO WEIGHT prototype triggered.", pos="midCenter", fade=True)
 	print("[AUTO WEIGHT] prototype running... (no implement)")
 
-def find_skin_cluster()
+def find_skin_cluster():
 	selfs = cmds.ls(selection=True, o=True)
 	if not sels:
 		return None
-	skin_clusters = cmds.;s(cmds.listHistory(sel[0]), type="skinCluster")
+	skin_clusters = cmds.ls(cmds.listHistory(sel[0]), type="skinCluster")
 	return skin_cluster[0] if skin_clusters else None
 
 # MAYA TOOL SHOTCUTS

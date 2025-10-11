@@ -50,12 +50,12 @@ class BlendWeightHelper(QtWidgets.QDialog):
         self.buttonAuto.clicked.connect(BlndWghtUtil.auto_weight)
         self.mainLayout.addWidget(self.buttonAuto)
 
-        self.mainLayout.addWidgets(QtWidgets.QLabel("MAYA TOOL SHOTCUTS"))
+        self.mainLayout.addWidget(QtWidgets.QLabel("MAYA TOOL SHOTCUTS"))
         self.buttonOpenPaintTool = QtWidgets.QPushButton("OPEN PAINT SKIN WEIGHT TOOL")
         self.buttonOpenPaintTool.clicked.connect(BlndWghtUtil.open_paint_skin_weight_tool)
         self.mainLayout.addWidget(self.buttonOpenPaintTool)
 
-        self.buttonOpenSmoothEditor = QtWidget.QPushButton("OPEN COMPONENT EDITOR (SMOOTH SKIN)")
+        self.buttonOpenSmoothEditor = QtWidgets.QPushButton("OPEN COMPONENT EDITOR (SMOOTH SKIN)")
         self.buttonOpenSmoothEditor.clicked.connect(BlndWghtUtil.open_smooth_skin_editor)
 
         self.buttonApply = QtWidgets.QPushButton("APPLY")
