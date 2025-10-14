@@ -58,6 +58,18 @@ class BlendWeightHelper(QtWidgets.QDialog):
         self.buttonOpenSmoothEditor = QtWidgets.QPushButton("OPEN COMPONENT EDITOR (SMOOTH SKIN)")
         self.buttonOpenSmoothEditor.clicked.connect(BlndWghtUtil.open_smooth_skin_editor)
 
+                # ---- SMOOTH SKIN (BUILT-IN TABLE) ----
+        self.mainLayout.addWidget(QtWidgets.QLabel("SMOOTH SKIN EDITOR (VIEW)"))
+
+        self.table = QtWidgets.QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Joint", "Weight"])
+        self.mainLayout.addWidget(self.table)
+
+        self.refresh_button = QtWidgets.QPushButton("REFRESH TABLE")
+        self.refresh_button.clicked.connect(self.populate_smooth_skin_table)
+        self.mainLayout.addWidget(self.refresh_button)
+
         self.buttonApply = QtWidgets.QPushButton("APPLY")
         self.buttonApply.clicked.connect(self.apply_weight)
         self.mainLayout.addWidget(self.buttonApply)
@@ -75,6 +87,22 @@ class BlendWeightHelper(QtWidgets.QDialog):
             cmds.warning("Please select a weight value first.")
             return
         BlndWghtUtil.apply_weight(self.current_weight)
+
+    def populate_smooth_skin_table(self):
+        self.table.setRowCount(0)
+        data = BlndWghtUtil.get_vertex_weights()
+        if not data:
+            cmds.warning("No vertex weights found or invalid selection.")
+            return
+
+        for joint, value in data:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(joint))
+            item = QtWidgets.QTableWidgetItem(str(round(value, 3)))
+            item.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEditable | QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(row, 1, item)
+
 
 
 def run():

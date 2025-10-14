@@ -1,3 +1,4 @@
+#blendWeightHelperUtil.py
 import maya.cmds as cmds
 import maya.mel as mel
 
@@ -60,7 +61,7 @@ def auto_weight():
 	print("[AUTO WEIGHT] prototype running... (no implement)")
 
 def find_skin_cluster():
-	selfs = cmds.ls(selection=True, o=True)
+	sels = cmds.ls(selection=True, o=True)
 	if not sels:
 		return None
 	
@@ -68,20 +69,46 @@ def find_skin_cluster():
 	if not history:
 		return None
 
-	skin_clusters = cmds.ls(cmds.listHistory(sel[0]), type="skinCluster")
-	return skin_cluster[0] if skin_clusters else None
+	skin_cluster = cmds.ls(history, type="skinCluster")
+	return skin_cluster[0] if skin_cluster else None
 
 # MAYA TOOL SHOTCUTS
 def open_paint_skin_weight_tool():
-	try:
-		mel.eval("ArtPaintSkinWeightsTool;")
-		cmds.inViewMessage(amg="Opened Paint Skin Weight Tool.", pos = "topCenter", fade = True)
-	except Exception as e:
-		cmds.warning(f"Failed to open Paint Skin Weight Tool: {e}")
+    try:
+        mel.eval("ArtPaintSkinWeightsTool;")  # เปิด tool
+        # เปิด tool settings window ด้วย
+        cmds.ToolSettingsWindow()  
+        cmds.inViewMessage(
+            amg="Opened Paint Skin Weights Tool with Tool Settings.",
+            pos="topCenter", fade=True
+        )
+    except Exception as e:
+        cmds.warning(f"Failed to open Paint Skin Weights Tool: {e}")
+
 		
 def open_smooth_skin_editor():
 	try:
 		mel.eval("ComponentEditor; showEditorComponent 'SmoothSkin'")
-		cmds.inVIewMessage(amg="Opened Component Editor > Smooth Skin tab", pos = "topCenter", fade = True)
+		cmds.inViewMessage(amg="Opened Component Editor > Smooth Skin tab", pos = "topCenter", fade = True)
 	except Exception as e:
 		cmds.warning(f"Failed to open Component Editor: {e}")
+
+def get_vertex_weights():
+    """Return [(joint, weight)] for the first selected vertex."""
+    sels = cmds.ls(selection=True, fl=True)
+    if not sels:
+        cmds.warning("No vertex selected.")
+        return []
+
+    skin_cluster = find_skin_cluster()
+    if not skin_cluster:
+        cmds.warning("No skinCluster found.")
+        return []
+
+    vtx = sels[0]
+    values = cmds.skinPercent(skin_cluster, vtx, query=True, value=True) 
+    if not isinstance(values, list):
+        values = [values]
+    joints = cmds.skinCluster(skin_cluster, query=True, influence=True)
+
+    return list(zip(joints, values))
