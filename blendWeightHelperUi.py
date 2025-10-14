@@ -21,26 +21,24 @@ class BlendWeightHelper(QtWidgets.QDialog):
         self.resize(340, 420)
         self.setMinimumWidth(340)
 
-        self.current_weight = None
         self.last_selection = []
 
         layout = QtWidgets.QVBoxLayout(self)
 
         # === Weight Buttons ===
-        layout.addWidget(QtWidgets.QLabel("SELECT VERTEX THEN CHOOSE WEIGHT VALUE"))
+        layout.addWidget(QtWidgets.QLabel("SELECT VERTEX THEN CLICK WEIGHT VALUE"))
         weight_layout = QtWidgets.QHBoxLayout()
         for val in [0.0, 0.2, 0.5, 0.8, 1.0]:
             btn = QtWidgets.QPushButton(str(val))
-            btn.setCheckable(True)
-            btn.clicked.connect(partial(self.toggle_weight, val))
+            btn.clicked.connect(partial(self.apply_weight_from_button, val))
             weight_layout.addWidget(btn)
         layout.addLayout(weight_layout)
         self.weight_buttons = weight_layout
 
         # === Auto Weight ===
-        layout.addWidget(QtWidgets.QLabel("AUTO WEIGHT (SELECT 3+ EDGE LOOP)"))
-        auto_btn = QtWidgets.QPushButton("AUTO")
-        auto_btn.clicked.connect(BlndWghtUtil.auto_weight)
+        layout.addWidget(QtWidgets.QLabel("AUTO WEIGHT (SELECT 3 EDGE LOOPS)"))
+        auto_btn = QtWidgets.QPushButton("AUTO GRADIENT WEIGHT")
+        auto_btn.clicked.connect(self.run_auto_weight)
         layout.addWidget(auto_btn)
 
         # === Maya Tool Shortcuts ===
@@ -50,11 +48,11 @@ class BlendWeightHelper(QtWidgets.QDialog):
         layout.addWidget(paint_btn)
 
         # === Smooth Skin Editor View ===
-        layout.addWidget(QtWidgets.QLabel("SMOOTH SKIN EDITOR VIEW (AUTO REFRESH)"))
+        layout.addWidget(QtWidgets.QLabel("SMOOTH SKIN EDITOR VIEW (DOUBLE-CLICK TO EDIT)"))
         self.table = QtWidgets.QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Vertex", "Joint", "Weight"])
-        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.itemChanged.connect(self.on_weight_edited) # Connect signal for editing
         layout.addWidget(self.table)
 
         # === Buttons ===
@@ -63,66 +61,85 @@ class BlendWeightHelper(QtWidgets.QDialog):
         reset_btn.clicked.connect(BlndWghtUtil.reset_selected_vertices)
         btn_row.addWidget(reset_btn)
 
-        self.apply_btn = QtWidgets.QPushButton("APPLY (No Weight Selected)")
-        self.apply_btn.clicked.connect(self.apply_weight)
-        btn_row.addWidget(self.apply_btn)
-        layout.addLayout(btn_row)
-
         close_btn = QtWidgets.QPushButton("CLOSE")
         close_btn.clicked.connect(self.close)
-        layout.addWidget(close_btn)
-
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+        
         # === Timer for auto-refresh ===
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.check_selection_change)
         self.timer.start(1000)  # check every 1s
+        
+        self.check_selection_change() # Initial population
 
     # === Logic ===
-    def toggle_weight(self, value):
-        """Toggle selection of weight button."""
-        self.current_weight = value
-        for i in range(self.weight_buttons.count()):
-            btn = self.weight_buttons.itemAt(i).widget()
-            btn.setChecked(float(btn.text()) == value)
-        self.apply_btn.setText(f"APPLY (Current: {value})")
-        cmds.inViewMessage(amg=f"Selected Weight: <hl>{value}</hl>", pos="midCenter", fade=True)
+    def apply_weight_from_button(self, value):
+        """Apply weight when a number button is clicked."""
+        cmds.inViewMessage(amg=f"Applying Weight: <hl>{value}</hl>", pos="midCenter", fade=True)
         BlndWghtUtil.apply_weight(value)
         self.populate_smooth_skin_table()
 
-    def apply_weight(self):
-        """Apply current selected weight again."""
-        if self.current_weight is None:
-            cmds.warning("Please select a weight value first.")
-            return
-        BlndWghtUtil.apply_weight(self.current_weight)
+    def run_auto_weight(self):
+        """Wrapper for the auto weight utility."""
+        BlndWghtUtil.auto_weight()
         self.populate_smooth_skin_table()
-
+        
     def check_selection_change(self):
         current = cmds.ls(selection=True, fl=True) or []
         if current != self.last_selection:
             self.last_selection = current
             self.populate_smooth_skin_table()
 
+    def on_weight_edited(self, item):
+        """Called when a user edits a cell in the weight column."""
+        if item.column() == 2: # Only trigger for the 'Weight' column
+            try:
+                new_weight = float(item.text())
+            except ValueError:
+                cmds.warning("Invalid weight value. Please enter a number.")
+                self.populate_smooth_skin_table() # Revert to original value
+                return
+            
+            row = item.row()
+            vtx_item = self.table.item(row, 0)
+            joint_item = self.table.item(row, 1)
+            
+            if vtx_item and joint_item:
+                vertex = vtx_item.text()
+                joint = joint_item.text()
+                BlndWghtUtil.set_specific_vertex_weight(vertex, joint, new_weight)
+                
+                # A small delay before refreshing to ensure Maya updates
+                QtCore.QTimer.singleShot(50, self.populate_smooth_skin_table)
+
     def populate_smooth_skin_table(self):
         """Refresh weight table for all selected vertices."""
-        data = BlndWghtUtil.get_vertex_weights_all()
-        self.table.setRowCount(0)
-        if not data:
-            return
-        for vtx, joint, value in data:
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(vtx))
-            self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(joint))
-            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(str(round(value, 3))))
+        self.table.blockSignals(True) # Block signals to prevent edit triggers
+        try:
+            data = BlndWghtUtil.get_vertex_weights_all()
+            self.table.setRowCount(0)
+            if not data:
+                return
+
+            self.table.setRowCount(len(data))
+            for row, (vtx, joint, value) in enumerate(data):
+                self.table.setItem(row, 0, QtWidgets.QTableWidgetItem(vtx))
+                self.table.setItem(row, 1, QtWidgets.QTableWidgetItem(joint))
+                self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(f"{value:.3f}"))
+
+        finally:
+            self.table.blockSignals(False) # Re-enable signals
 
 
 def run():
     global ui
     try:
         ui.close()
+        ui.deleteLater()
     except:
         pass
+    
     ptr = wrapInstance(int(omui.MQtUtil.mainWindow()), QtWidgets.QWidget)
     ui = BlendWeightHelper(parent=ptr)
     ui.show()
