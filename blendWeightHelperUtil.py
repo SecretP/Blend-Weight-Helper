@@ -5,96 +5,112 @@ import maya.api.OpenMaya as om
 # ============================================================
 # FINAL SIMPLE BLEND FUNCTION
 # ============================================================
-def apply_simple_blend():
+def apply_hierarchy_blend():
     """
-    Applies a 3-step weight blend (0.8, 0.5, 0.2) based on a central
-    selected vertex loop and the active joint in the Paint Tool.
+    Applies a 5-step weight blend. The selected joint is always treated
+    as the 'parent' of the blend operation.
     """
-    # 1. Get user's vertex selection and validate
-    selection = cmds.ls(sl=True, fl=True)
-    is_edge = cmds.filterExpand(selection, sm=32)
-    is_vertex = cmds.filterExpand(selection, sm=31)
-    if is_edge:
-        cmds.select(selection, r=True); mel.eval("polySelectSp -loop;")
-        center_loop_edges = cmds.ls(sl=True, fl=True)
-    elif is_vertex:
-        center_loop_edges = cmds.ls(cmds.polyListComponentConversion(selection, toEdge=True, internal=True), fl=True)
-    else:
-        cmds.warning("Please select a central vertex or edge loop."); return
-        
-    # 2. Get context and joints from Paint Tool
     ctx = cmds.currentCtx()
     if not ctx.startswith('artAttrSkin'):
         cmds.warning("Please open the Paint Skin Weights Tool and select an influence joint."); return
-    child_jnt = cmds.artAttrSkinPaintCtx(ctx, q=True, influence=True)
-    if not child_jnt:
+    center_jnt = cmds.artAttrSkinPaint-Ctx(ctx, q=True, influence=True)
+    if not center_jnt:
         cmds.warning("No influence is selected in the Paint Tool window."); return
-    parents = cmds.listRelatives(child_jnt, p=True, type="joint", f=True)
-    if not parents:
-        cmds.warning(f"Could not find a parent joint for '{child_jnt}'."); return
-    parent_jnt = parents[0]
-    
-    # 3. Get skinCluster and other info
-    skin_cluster = find_skin_cluster(selection=selection)
-    if not skin_cluster:
-        cmds.warning("No skinCluster found on selection."); return
+
+    original_context = cmds.currentCtx()
+    original_selection = cmds.ls(sl=True, long=True)
     
     cmds.undoInfo(openChunk=True)
-    original_selection = cmds.ls(sl=True, long=True)
     try:
-        # 4. Find the 3 loops (center, and two adjacent)
-        set_loop_c = set(center_loop_edges)
-        loop_a_edges, loop_b_edges = _get_adjacent_edge_loops(center_loop_edges)
+        # --- CORRECTED BLEND PAIR LOGIC ---
+        # The selected joint is now always the parent of the blend.
+        blend_parent = center_jnt
+        blend_child = (cmds.listRelatives(center_jnt, c=True, type="joint", f=True) or [None])[0]
 
-        if not (loop_a_edges and loop_b_edges):
-            cmds.warning("Could not find two adjacent loops. Please select a loop away from mesh borders."); return
-            
-        # Determine which loop is parent-side vs child-side
-        parent_jnt_pos = om.MVector(*cmds.xform(parent_jnt, q=True, ws=True, t=True))
-        loop_a_center_vtx = cmds.ls(cmds.polyListComponentConversion(loop_a_edges[0], toVertex=True), fl=True)[0]
-        loop_b_center_vtx = cmds.ls(cmds.polyListComponentConversion(loop_b_edges[0], toVertex=True), fl=True)[0]
-        loop_a_pos = om.MVector(*cmds.xform(loop_a_center_vtx, q=True, ws=True, t=True))
-        loop_b_pos = om.MVector(*cmds.xform(loop_b_center_vtx, q=True, ws=True, t=True))
-        
-        parent_side_loop, child_side_loop = (loop_a_edges, loop_b_edges) if (parent_jnt_pos - loop_a_pos).length() < (parent_jnt_pos - loop_b_pos).length() else (loop_b_edges, loop_a_edges)
-            
-        loops_vtx = [
-            cmds.ls(cmds.polyListComponentConversion(parent_side_loop, toVertex=True), fl=True),
-            cmds.ls(cmds.polyListComponentConversion(center_loop_edges, toVertex=True), fl=True),
-            cmds.ls(cmds.polyListComponentConversion(child_side_loop,  toVertex=True), fl=True)
+        # If there is no child, we cannot create a blend.
+        if not blend_child:
+            cmds.warning(f"Cannot create blend. Joint '{center_jnt}' has no child joint."); return
+
+        # Find the full 5-joint chain for loop discovery
+        parent_of_blend_parent = (cmds.listRelatives(blend_parent, p=True, type="joint", f=True) or [None])[0]
+        child_of_blend_child = (cmds.listRelatives(blend_child, c=True, type="joint", f=True) or [None])[0]
+
+        joint_chain = [
+            (cmds.listRelatives(parent_of_blend_parent, p=True, type="joint", f=True) or [None])[0], # Grandparent of Parent
+            parent_of_blend_parent, # Parent of Parent
+            blend_parent,           # The selected joint (Center)
+            blend_child,            # The child
+            child_of_blend_child    # The grandchild
         ]
         
+        skin_cluster = find_skin_cluster(selection=[center_jnt])
+        if not skin_cluster:
+            cmds.warning(f"Could not find a skinCluster for '{center_jnt}'."); return
+        mesh_name = cmds.listRelatives(cmds.skinCluster(skin_cluster, q=True, g=True)[0], p=True, f=True)[0]
+        
+        sel_list = om.MSelectionList(); sel_list.add(mesh_name)
+        mesh_fn = om.MFnMesh(sel_list.getDagPath(0))
+        vertex_positions = mesh_fn.getPoints(om.MSpace.kWorld)
+
+        vertex_loops = []
+        all_loop_verts = []
+        for i, joint in enumerate(joint_chain):
+            if not joint:
+                vertex_loops.append([]); continue
+            
+            joint_pos = om.MPoint(cmds.xform(joint, q=True, ws=True, t=True))
+            closest_vtx_index = -1; min_dist_sq = float('inf')
+            for vtx_idx, vtx_pos in enumerate(vertex_positions):
+                dist_sq = vtx_pos.distanceTo(joint_pos)
+                if dist_sq < min_dist_sq:
+                    min_dist_sq = dist_sq; closest_vtx_index = vtx_idx
+            
+            closest_vtx_name = f"{mesh_name}.vtx[{closest_vtx_index}]"
+            cmds.select(closest_vtx_name, r=True)
+            mel.eval("polySelectSp -loop;")
+            current_loop = cmds.ls(sl=True, fl=True)
+            if not current_loop:
+                print(f"Warning: Could not determine vertex loop for joint '{joint.split('|')[-1]}'. Skipping.")
+            vertex_loops.append(current_loop)
+            all_loop_verts.extend(current_loop)
+        
+        if not vertex_loops[2]:
+             cmds.warning("Failed to identify the central vertex loop. Check mesh topology."); return
+            
         weights = [
-            [(parent_jnt, 0.8), (child_jnt, 0.2)],
-            [(parent_jnt, 0.5), (child_jnt, 0.5)],
-            [(parent_jnt, 0.2), (child_jnt, 0.8)]
+            [(blend_parent, 1.0), (blend_child, 0.0)],
+            [(blend_parent, 0.8), (blend_child, 0.2)],
+            [(blend_parent, 0.5), (blend_child, 0.5)],
+            [(blend_parent, 0.2), (blend_child, 0.8)],
+            [(blend_parent, 0.0), (blend_child, 1.0)]
         ]
         
-        all_loop_verts = loops_vtx[0] + loops_vtx[1] + loops_vtx[2]
-        
-        # 5. Prune unrelated influences for a clean result
+        unique_loop_verts = list(set(all_loop_verts))
+        if not unique_loop_verts:
+            cmds.warning("Could not find any vertex loops to apply weights on."); return
+            
         all_influences = cmds.skinCluster(skin_cluster, q=True, influence=True)
-        relevant_influences = {parent_jnt, child_jnt}
+        relevant_influences = {blend_parent, blend_child}
         influences_to_prune = [inf for inf in all_influences if inf not in relevant_influences]
         
         if influences_to_prune:
             prune_weights_list = [(inf, 0.0) for inf in influences_to_prune]
-            cmds.skinPercent(skin_cluster, all_loop_verts, transformValue=prune_weights_list, normalize=False)
+            cmds.skinPercent(skin_cluster, unique_loop_verts, transformValue=prune_weights_list, normalize=False)
 
-        # 6. Apply the clean, stepped weights
-        for i, loop in enumerate(loops_vtx):
+        for i, loop in enumerate(vertex_loops):
             if loop:
                 cmds.skinPercent(skin_cluster, loop, transformValue=weights[i], normalize=True)
         
-        cmds.inViewMessage(amg=f"Applied 3-Step Simple Blend.", pos="midCenter", fade=True)
+        cmds.inViewMessage(amg=f"Applied 5-Step Blend between '{blend_parent.split('|')[-1]}' and '{blend_child.split('|')[-1]}'.", pos="midCenter", fade=True)
 
     except Exception as e:
-        cmds.warning(f"Simple Blend failed: {e}")
+        cmds.warning(f"Hierarchy Blend failed: {e}")
     finally:
-        cmds.select(original_selection, r=True)
+        if original_selection: cmds.select(original_selection, r=True)
+        else: cmds.select(cl=True)
+        cmds.setToolTo(original_context)
         cmds.undoInfo(closeChunk=True)
         cmds.refresh(f=True)
-
 # ============================================================
 # CORE & HELPER FUNCTIONS
 # ============================================================
