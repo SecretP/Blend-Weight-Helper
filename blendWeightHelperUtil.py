@@ -3,14 +3,26 @@ import maya.mel as mel
 import maya.api.OpenMaya as om
 
 # ============================================================
-# AUTO BLEND METHOD: LOCALIZED CAPSULE
+# FINAL SIMPLE BLEND FUNCTION
 # ============================================================
-def apply_localized_capsule_blend(radius, falloff):
-    selected_verts = cmds.ls(sl=True, fl=True)
-    selected_verts = cmds.filterExpand(selected_verts, sm=31)
-    if not selected_verts:
-        cmds.warning("Please select vertices to apply the blend to."); return
+def apply_simple_blend():
+    """
+    Applies a 3-step weight blend (0.8, 0.5, 0.2) based on a central
+    selected vertex loop and the active joint in the Paint Tool.
+    """
+    # 1. Get user's vertex selection and validate
+    selection = cmds.ls(sl=True, fl=True)
+    is_edge = cmds.filterExpand(selection, sm=32)
+    is_vertex = cmds.filterExpand(selection, sm=31)
+    if is_edge:
+        cmds.select(selection, r=True); mel.eval("polySelectSp -loop;")
+        center_loop_edges = cmds.ls(sl=True, fl=True)
+    elif is_vertex:
+        center_loop_edges = cmds.ls(cmds.polyListComponentConversion(selection, toEdge=True, internal=True), fl=True)
+    else:
+        cmds.warning("Please select a central vertex or edge loop."); return
         
+    # 2. Get context and joints from Paint Tool
     ctx = cmds.currentCtx()
     if not ctx.startswith('artAttrSkin'):
         cmds.warning("Please open the Paint Skin Weights Tool and select an influence joint."); return
@@ -21,92 +33,71 @@ def apply_localized_capsule_blend(radius, falloff):
     if not parents:
         cmds.warning(f"Could not find a parent joint for '{child_jnt}'."); return
     parent_jnt = parents[0]
-
-    skin_cluster = find_skin_cluster(selection=[child_jnt])
+    
+    # 3. Get skinCluster and other info
+    skin_cluster = find_skin_cluster(selection=selection)
     if not skin_cluster:
-        cmds.warning(f"Could not find a skinCluster for '{child_jnt}'."); return
+        cmds.warning("No skinCluster found on selection."); return
     
-    mesh_name_from_skin = cmds.listRelatives(cmds.skinCluster(skin_cluster, q=True, g=True)[0], p=True, f=True)[0]
-    mesh_name_from_selection = selected_verts[0].split('.')[0]
+    cmds.undoInfo(openChunk=True)
+    original_selection = cmds.ls(sl=True, long=True)
     try:
-        unique_skin_mesh_path = cmds.ls(mesh_name_from_skin, long=True)[0]
-        unique_selection_mesh_path = cmds.ls(mesh_name_from_selection, long=True)[0]
-        if unique_skin_mesh_path != unique_selection_mesh_path:
-            cmds.warning("Selection Mismatch: Your vertices and Paint Tool are on different meshes."); return
-    except IndexError:
-        cmds.warning("Could not resolve mesh names for validation."); return
+        # 4. Find the 3 loops (center, and two adjacent)
+        set_loop_c = set(center_loop_edges)
+        loop_a_edges, loop_b_edges = _get_adjacent_edge_loops(center_loop_edges)
 
-    parent_pos = om.MPoint(cmds.xform(parent_jnt, q=True, ws=True, t=True))
-    child_pos = om.MPoint(cmds.xform(child_jnt, q=True, ws=True, t=True))
-    grandchildren = cmds.listRelatives(child_jnt, c=True, type="joint", f=True)
-    if not grandchildren:
-        cmds.warning(f"'{child_jnt}' has no child joint to define capsule end."); return
-    grandchild_pos = om.MPoint(cmds.xform(grandchildren[0], q=True, ws=True, t=True))
-
-    weights_to_set = {}
-    for vtx in selected_verts:
-        vtx_pos = om.MPoint(cmds.xform(vtx, q=True, ws=True, t=True))
-        _, dist_parent = get_closest_point_on_segment(vtx_pos, parent_pos, child_pos)
-        _, dist_child = get_closest_point_on_segment(vtx_pos, child_pos, grandchild_pos)
+        if not (loop_a_edges and loop_b_edges):
+            cmds.warning("Could not find two adjacent loops. Please select a loop away from mesh borders."); return
+            
+        # Determine which loop is parent-side vs child-side
+        parent_jnt_pos = om.MVector(*cmds.xform(parent_jnt, q=True, ws=True, t=True))
+        loop_a_center_vtx = cmds.ls(cmds.polyListComponentConversion(loop_a_edges[0], toVertex=True), fl=True)[0]
+        loop_b_center_vtx = cmds.ls(cmds.polyListComponentConversion(loop_b_edges[0], toVertex=True), fl=True)[0]
+        loop_a_pos = om.MVector(*cmds.xform(loop_a_center_vtx, q=True, ws=True, t=True))
+        loop_b_pos = om.MVector(*cmds.xform(loop_b_center_vtx, q=True, ws=True, t=True))
         
-        in_parent = dist_parent < radius
-        in_child = dist_child < radius
-        tv = []
-        if in_parent and in_child:
-            total_dist = dist_parent + dist_child
-            if total_dist > 0.001:
-                ratio = dist_parent / total_dist
-                smoothed_ratio = pow(ratio, falloff)
-                tv = [(parent_jnt, 1.0 - smoothed_ratio), (child_jnt, smoothed_ratio)]
-        elif in_parent: tv = [(parent_jnt, 1.0), (child_jnt, 0.0)]
-        elif in_child: tv = [(parent_jnt, 0.0), (child_jnt, 1.0)]
-        if tv:
-            weights_to_set[vtx] = tv
+        parent_side_loop, child_side_loop = (loop_a_edges, loop_b_edges) if (parent_jnt_pos - loop_a_pos).length() < (parent_jnt_pos - loop_b_pos).length() else (loop_b_edges, loop_a_edges)
+            
+        loops_vtx = [
+            cmds.ls(cmds.polyListComponentConversion(parent_side_loop, toVertex=True), fl=True),
+            cmds.ls(cmds.polyListComponentConversion(center_loop_edges, toVertex=True), fl=True),
+            cmds.ls(cmds.polyListComponentConversion(child_side_loop,  toVertex=True), fl=True)
+        ]
+        
+        weights = [
+            [(parent_jnt, 0.8), (child_jnt, 0.2)],
+            [(parent_jnt, 0.5), (child_jnt, 0.5)],
+            [(parent_jnt, 0.2), (child_jnt, 0.8)]
+        ]
+        
+        all_loop_verts = loops_vtx[0] + loops_vtx[1] + loops_vtx[2]
+        
+        # 5. Prune unrelated influences for a clean result
+        all_influences = cmds.skinCluster(skin_cluster, q=True, influence=True)
+        relevant_influences = {parent_jnt, child_jnt}
+        influences_to_prune = [inf for inf in all_influences if inf not in relevant_influences]
+        
+        if influences_to_prune:
+            prune_weights_list = [(inf, 0.0) for inf in influences_to_prune]
+            cmds.skinPercent(skin_cluster, all_loop_verts, transformValue=prune_weights_list, normalize=False)
 
-    if not weights_to_set:
-        cmds.warning("None of the selected vertices were within the capsule radius."); return
-    
-    _apply_weights_with_progress(skin_cluster, weights_to_set, "Localized Capsule", [parent_jnt, child_jnt])
+        # 6. Apply the clean, stepped weights
+        for i, loop in enumerate(loops_vtx):
+            if loop:
+                cmds.skinPercent(skin_cluster, loop, transformValue=weights[i], normalize=True)
+        
+        cmds.inViewMessage(amg=f"Applied 3-Step Simple Blend.", pos="midCenter", fade=True)
+
+    except Exception as e:
+        cmds.warning(f"Simple Blend failed: {e}")
+    finally:
+        cmds.select(original_selection, r=True)
+        cmds.undoInfo(closeChunk=True)
+        cmds.refresh(f=True)
 
 # ============================================================
 # CORE & HELPER FUNCTIONS
 # ============================================================
-def _apply_weights_with_progress(skin_cluster, weights_to_set, method_name, relevant_joints, apply_weights=True):
-    cmds.undoInfo(openChunk=True)
-    progress_window = None
-    try:
-        if apply_weights:
-            progress_window = cmds.window(title=f"Applying {method_name}", width=300)
-            cmds.columnLayout(adj=True); progress_bar = cmds.progressBar(maxValue=len(weights_to_set), width=300); cmds.showWindow(progress_window)
-        
-        all_verts = list(weights_to_set.keys())
-        all_influences = cmds.skinCluster(skin_cluster, q=True, influence=True)
-        influences_to_prune = [inf for inf in all_influences if inf not in relevant_joints]
-        
-        if influences_to_prune and all_verts:
-            prune_weights_list = [(inf, 0.0) for inf in influences_to_prune]
-            cmds.skinPercent(skin_cluster, all_verts, transformValue=prune_weights_list, normalize=False)
-            
-        if apply_weights:
-            for vtx, tv in weights_to_set.items():
-                if progress_window and cmds.progressBar(progress_bar, q=True, isCancelled=True): break
-                if tv:
-                    cmds.skinPercent(skin_cluster, vtx, transformValue=tv, normalize=False)
-                if progress_window:
-                    cmds.progressBar(progress_bar, e=True, step=1)
-            
-            if all_verts:
-                cmds.skinCluster(skin_cluster, e=True, normalizeWeights=True, geometry=all_verts)
-    except Exception as e:
-        cmds.warning(f"Error during weight application: {e}")
-    finally:
-        if progress_window and cmds.window(progress_window, exists=True):
-            cmds.deleteUI(progress_window, window=True)
-        cmds.undoInfo(closeChunk=True)
-        if apply_weights:
-            cmds.inViewMessage(amg=f"Applied {method_name} to {len(weights_to_set)} vertices.", pos="midCenter", fade=True)
-        cmds.refresh(f=True)
-
 def find_skin_cluster(selection=None):
     if not selection: 
         selection = cmds.ls(sl=True, long=True)
@@ -127,16 +118,22 @@ def find_skin_cluster(selection=None):
         if skin_clusters: return skin_clusters[0]
     return None
 
-def get_closest_point_on_segment(point, seg_start, seg_end):
-    segment_vec = seg_end - seg_start
-    point_vec = point - seg_start
-    segment_len_sq = segment_vec.length() ** 2
-    if segment_len_sq == 0: return seg_start, (point - seg_start).length()
-    t = (point_vec * segment_vec) / segment_len_sq
-    t = max(0.0, min(1.0, t))
-    closest_point = seg_start + (segment_vec * t)
-    distance = (point - closest_point).length()
-    return closest_point, distance
+def _get_adjacent_edge_loops(edge_loop):
+    faces = cmds.ls(cmds.polyListComponentConversion(edge_loop, fromEdge=True, toFace=True), fl=True)
+    if not faces: return None, None
+    border_edges = cmds.ls(cmds.polyListComponentConversion(faces, fromFace=True, toEdge=True, border=True), fl=True)
+    if not border_edges: return None, None
+    cmds.select(border_edges[0], r=True)
+    mel.eval("polySelectSp -loop;")
+    loop_a = cmds.ls(sl=True, fl=True)
+    loop_b_list = list(set(border_edges) - set(loop_a))
+    loop_b = loop_b_list if loop_b_list else None
+    original_selection = cmds.ls(sl=True, long=True) # Save selection before returning
+    try:
+        cmds.select(edge_loop) # Restore selection
+    except:
+        pass # Handle cases where original selection might be gone
+    return loop_a, loop_b
 
 def get_vertex_weights_all():
     sels = cmds.ls(sl=True, fl=True)
@@ -214,6 +211,3 @@ def open_paint_skin_weight_tool():
 def undo_last_action():
     cmds.undo()
     cmds.inViewMessage(amg="Last action undone.", pos="midCenter", fade=True)
-
-
-
