@@ -42,8 +42,8 @@ class WeightTableWidget(QtWidgets.QTableWidget):
 class BlendWeightHelper(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super(BlendWeightHelper, self).__init__(parent)
-        self.setWindowTitle("Blend Weight Helper (Final)")
-        self.resize(340, 450)
+        self.setWindowTitle("Blend Weight Helper (Dual Mode)")
+        self.resize(340, 600)
         self.setMinimumWidth(340)
 
         self.last_selection = []
@@ -57,13 +57,33 @@ class BlendWeightHelper(QtWidgets.QDialog):
             weight_layout.addWidget(btn)
         layout.addLayout(weight_layout)
 
-        auto_blend_group = QtWidgets.QGroupBox("Simple 3-Loop Blend")
+        auto_blend_group = QtWidgets.QGroupBox("Auto Blend Methods")
         auto_blend_layout = QtWidgets.QVBoxLayout()
-        auto_blend_layout.addWidget(QtWidgets.QLabel("Select 1 central vertex loop, then click:"))
-        auto_btn = QtWidgets.QPushButton("APPLY SIMPLE BLEND")
-        auto_btn.setStyleSheet("font-weight: bold; height: 30px;")
-        auto_btn.clicked.connect(self.run_auto_blend)
-        auto_blend_layout.addWidget(auto_btn)
+
+        # --- Method 1: Localized Capsule ---
+        auto_blend_layout.addWidget(QtWidgets.QLabel("<b>1. Localized Capsule Blend (Detailed)</b>"))
+        capsule_options_layout = QtWidgets.QGridLayout()
+        capsule_options_layout.addWidget(QtWidgets.QLabel("Capsule Radius:"), 0, 0)
+        self.radius_spinbox = QtWidgets.QDoubleSpinBox()
+        self.radius_spinbox.setRange(0.01, 100.0); self.radius_spinbox.setSingleStep(0.1); self.radius_spinbox.setValue(1.5)
+        capsule_options_layout.addWidget(self.radius_spinbox, 0, 1)
+        capsule_options_layout.addWidget(QtWidgets.QLabel("Blend Falloff:"), 1, 0)
+        self.falloff_spinbox = QtWidgets.QDoubleSpinBox()
+        self.falloff_spinbox.setRange(0.1, 5.0); self.falloff_spinbox.setSingleStep(0.1); self.falloff_spinbox.setValue(1.0)
+        capsule_options_layout.addWidget(self.falloff_spinbox, 1, 1)
+        auto_blend_layout.addLayout(capsule_options_layout)
+        auto_blend_layout.addWidget(QtWidgets.QLabel("Select vertices, then in Paint Tool, select a joint:"))
+        auto_capsule_btn = QtWidgets.QPushButton("APPLY LOCALIZED CAPSULE")
+        auto_capsule_btn.clicked.connect(self.run_localized_capsule)
+        auto_blend_layout.addWidget(auto_capsule_btn)
+        
+        # --- Method 2: Simple Hierarchy ---
+        auto_blend_layout.addWidget(QtWidgets.QLabel("<b>2. 5-Step Hierarchy Blend (Simple)</b>"))
+        auto_blend_layout.addWidget(QtWidgets.QLabel("In Paint Tool, select 1 central joint:"))
+        auto_hierarchy_btn = QtWidgets.QPushButton("APPLY 5-STEP HIERARCHY")
+        auto_hierarchy_btn.clicked.connect(self.run_hierarchy_blend)
+        auto_blend_layout.addWidget(auto_hierarchy_btn)
+
         auto_blend_group.setLayout(auto_blend_layout)
         layout.addWidget(auto_blend_group)
 
@@ -97,8 +117,14 @@ class BlendWeightHelper(QtWidgets.QDialog):
         self.timer.start(500)
         self.check_selection_change()
 
-    def run_auto_blend(self):
-        BlndWghtUtil.apply_simple_blend()
+    def run_localized_capsule(self):
+        radius = self.radius_spinbox.value()
+        falloff = self.falloff_spinbox.value()
+        BlndWghtUtil.apply_localized_capsule_blend(radius, falloff)
+        self.populate_smooth_skin_table()
+
+    def run_hierarchy_blend(self):
+        BlndWghtUtil.apply_hierarchy_blend()
         self.populate_smooth_skin_table()
 
     def apply_weight_from_button(self, value):
